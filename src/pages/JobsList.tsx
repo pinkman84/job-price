@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Job } from '../types'
 
+type JobWithClient = Job & { client: { name: string } | null }
+
 export default function JobsList() {
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobs, setJobs] = useState<JobWithClient[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -14,7 +16,7 @@ export default function JobsList() {
     async function load() {
       const { data, error } = await supabase
         .from('jobs')
-        .select('*')
+        .select('*, client:clients(name)')
         .order('created_at', { ascending: false })
 
       if (cancelled) return
@@ -22,7 +24,7 @@ export default function JobsList() {
       if (error) {
         setError(error.message)
       } else {
-        setJobs(data ?? [])
+        setJobs((data as JobWithClient[]) ?? [])
       }
       setLoading(false)
     }
@@ -67,11 +69,11 @@ export default function JobsList() {
                 <span className={`job-status job-status-${job.status}`}>{job.status}</span>
               </div>
               <div className="job-card-meta">
-                <span>{job.client || 'No client set'}</span>
-                <span>{job.location || 'No location set'}</span>
+                <span>{job.client?.name ?? 'No client set'}</span>
+                <span>{job.due_date ? `Due ${job.due_date}` : 'No due date'}</span>
               </div>
               <div className="job-price">
-                {job.price.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}
+                {job.total.toLocaleString(undefined, { style: 'currency', currency: job.currency_code })}
               </div>
             </Link>
           </li>
