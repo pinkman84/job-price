@@ -84,7 +84,11 @@ create index if not exists material_prices_material_id_idx on material_prices (m
 create index if not exists material_prices_supplier_id_idx on material_prices (supplier_id);
 
 -- Latest known price per material/supplier pair.
-create or replace view material_latest_prices as
+-- security_invoker: without this, the view would run with its owner's
+-- privileges and silently bypass the RLS policies on material_prices below,
+-- leaking every user's prices to every other user.
+create or replace view material_latest_prices
+with (security_invoker = true) as
 select distinct on (material_id, supplier_id)
   material_id,
   supplier_id,
@@ -155,7 +159,10 @@ create index if not exists job_images_job_id_idx on job_images (job_id);
 -- ---------------------------------------------------------------------------
 -- Client outstanding balance (derived, not stored, so it can't drift)
 -- ---------------------------------------------------------------------------
-create or replace view client_outstanding_totals as
+-- security_invoker: see note on material_latest_prices above — same reasoning,
+-- this view must run as the querying user so jobs RLS still applies.
+create or replace view client_outstanding_totals
+with (security_invoker = true) as
 select
   client_id,
   sum(amount_outstanding) filter (where not paid_in_full) as outstanding

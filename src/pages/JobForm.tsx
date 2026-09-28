@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { findOrCreateByName, resolveAddressId } from '../lib/resolvers'
 import { useAuth } from '../context/AuthContext'
 import type { Address, JobStatus } from '../types'
 
@@ -13,62 +14,6 @@ interface LineItemRow {
 
 function emptyLineItem(): LineItemRow {
   return { key: crypto.randomUUID(), description: '', quantity: '1', unitCost: '0' }
-}
-
-async function resolveClientId(name: string, userId: string): Promise<string | null> {
-  const trimmed = name.trim()
-  if (!trimmed) return null
-
-  const { data: existing, error: lookupError } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('user_id', userId)
-    .ilike('name', trimmed)
-    .maybeSingle()
-
-  if (lookupError) throw lookupError
-  if (existing) return existing.id
-
-  const { data: created, error: insertError } = await supabase
-    .from('clients')
-    .insert({ user_id: userId, name: trimmed })
-    .select('id')
-    .single()
-
-  if (insertError) throw insertError
-  return created.id
-}
-
-async function resolveAddressId(
-  existingId: string | null,
-  fields: { line1: string; line2: string; city: string; country: string; postcode: string },
-  userId: string,
-): Promise<string | null> {
-  const hasAny = Object.values(fields).some((v) => v.trim())
-  if (!hasAny) return null
-
-  if (!fields.line1.trim()) {
-    throw new Error('Address line 1 is required if you enter any other address field.')
-  }
-
-  const payload = {
-    user_id: userId,
-    line1: fields.line1.trim(),
-    line2: fields.line2.trim() || null,
-    city: fields.city.trim() || null,
-    country: fields.country.trim() || null,
-    postcode: fields.postcode.trim() || null,
-  }
-
-  if (existingId) {
-    const { error } = await supabase.from('addresses').update(payload).eq('id', existingId)
-    if (error) throw error
-    return existingId
-  }
-
-  const { data, error } = await supabase.from('addresses').insert(payload).select('id').single()
-  if (error) throw error
-  return data.id
 }
 
 export default function JobForm() {
@@ -191,7 +136,7 @@ export default function JobForm() {
 
     try {
       const userId = session!.user.id
-      const clientId = await resolveClientId(clientName, userId)
+      const clientId = await findOrCreateByName('clients', clientName, userId)
       const addressId = await resolveAddressId(
         existingAddressId,
         { line1: addressLine1, line2: addressLine2, city, country, postcode },

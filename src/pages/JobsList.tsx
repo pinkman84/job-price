@@ -35,22 +35,10 @@ export default function JobsList() {
     }
   }, [])
 
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-  }
-
   return (
     <div className="page">
       <header className="page-header">
         <h1>Jobs</h1>
-        <div className="header-actions">
-          <Link className="button" to="/jobs/new">
-            + New job
-          </Link>
-          <button className="link-button" onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
       </header>
 
       {loading && <p>Loading…</p>}
