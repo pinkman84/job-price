@@ -366,9 +366,12 @@ textarea:focus {
   min-width: 0;
 }
 
-.material-line-row,
-.labour-line-row {
+.material-line-row {
   grid-template-columns: minmax(90px, 130px) minmax(0, 1fr) 55px 65px 60px 65px auto;
+}
+
+.labour-line-row {
+  grid-template-columns: minmax(90px, 130px) minmax(0, 1fr) 65px 70px 70px auto;
 }
 
 .line-item-total {

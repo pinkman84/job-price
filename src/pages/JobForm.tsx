@@ -470,13 +470,6 @@ export default function JobForm() {
                   value={item.unitCost}
                   onChange={(e) => updateRow(setLabourLines, item.key, { unitCost: e.target.value })}
                 />
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="Margin %"
-                  value={item.marginPercent}
-                  onChange={(e) => updateRow(setLabourLines, item.key, { marginPercent: e.target.value })}
-                />
                 <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
                 <button type="button" className="link-button remove-line" onClick={() => removeRow(setLabourLines, item.key)}>
                   ✕
