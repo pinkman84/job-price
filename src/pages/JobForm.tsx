@@ -394,14 +394,6 @@ export default function JobForm() {
           </datalist>
 
           <div className="line-items">
-            <div className="line-item-header material-line-row-2">
-              <span>Qty</span>
-              <span>Price</span>
-              <span>Unit</span>
-              <span>Margin %</span>
-              <span>Subtotal</span>
-              <span />
-            </div>
             {materialLines.map((item) => (
               <div className="material-line-card" key={item.key}>
                 <input
@@ -411,47 +403,62 @@ export default function JobForm() {
                   value={item.description}
                   onChange={(e) => handleMaterialNameChange(item.key, e.target.value)}
                 />
-                <div className="line-item-row material-line-row-2">
-                  <input
-                    type="number"
-                    step="0.01"
-                    aria-label="Quantity"
-                    value={item.quantity}
-                    onChange={(e) => updateRow(setMaterialLines, item.key, { quantity: e.target.value })}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    aria-label="Price"
-                    value={item.unitCost}
-                    onChange={(e) => updateRow(setMaterialLines, item.key, { unitCost: e.target.value })}
-                  />
-                  <select
-                    aria-label="Unit"
-                    value={item.unit}
-                    onChange={(e) => updateRow(setMaterialLines, item.key, { unit: e.target.value as UnitValue })}
-                  >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u.value} value={u.value}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    step="0.1"
-                    aria-label="Margin percent"
-                    value={item.marginPercent}
-                    onChange={(e) => updateRow(setMaterialLines, item.key, { marginPercent: e.target.value })}
-                  />
-                  <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
-                  <button
-                    type="button"
-                    className="link-button remove-line"
-                    onClick={() => removeRow(setMaterialLines, item.key)}
-                  >
-                    ✕
-                  </button>
+                <div className="material-line-fields">
+                  <div className="material-line-inputs">
+                    <div className="material-field">
+                      <label>Qty</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateRow(setMaterialLines, item.key, { quantity: e.target.value })}
+                      />
+                    </div>
+                    <div className="material-field">
+                      <label>Price</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.unitCost}
+                        onChange={(e) => updateRow(setMaterialLines, item.key, { unitCost: e.target.value })}
+                      />
+                    </div>
+                    <div className="material-field">
+                      <label>Unit</label>
+                      <select
+                        value={item.unit}
+                        onChange={(e) => updateRow(setMaterialLines, item.key, { unit: e.target.value as UnitValue })}
+                      >
+                        {UNIT_OPTIONS.map((u) => (
+                          <option key={u.value} value={u.value}>
+                            {u.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="material-field">
+                      <label>Margin %</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={item.marginPercent}
+                        onChange={(e) => updateRow(setMaterialLines, item.key, { marginPercent: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="material-line-summary">
+                    <div className="material-field">
+                      <label>Subtotal</label>
+                      <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="link-button remove-line"
+                      onClick={() => removeRow(setMaterialLines, item.key)}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -468,14 +475,6 @@ export default function JobForm() {
         <fieldset className="form-fieldset">
           <legend>Labour</legend>
           <div className="line-items">
-            <div className="line-item-header labour-line-row">
-              <span />
-              <span />
-              <span>Qty</span>
-              <span>Rate</span>
-              <span>Subtotal</span>
-              <span />
-            </div>
             {labourLines.map((item) => (
               <div className="line-item-row labour-line-row" key={item.key}>
                 <select
@@ -502,12 +501,14 @@ export default function JobForm() {
                 <input
                   type="number"
                   step="0.01"
+                  placeholder="Qty"
                   value={item.quantity}
                   onChange={(e) => updateRow(setLabourLines, item.key, { quantity: e.target.value })}
                 />
                 <input
                   type="number"
                   step="0.01"
+                  placeholder="Rate"
                   value={item.unitCost}
                   onChange={(e) => updateRow(setLabourLines, item.key, { unitCost: e.target.value })}
                 />
@@ -533,13 +534,6 @@ export default function JobForm() {
             Flat one-off amounts — contingency, callout fees, or just a number to scare off a tricky job.
           </p>
           <div className="line-items">
-            <div className="line-item-header other-line-row">
-              <span />
-              <span>Qty</span>
-              <span>Amount</span>
-              <span>Subtotal</span>
-              <span />
-            </div>
             {otherLines.map((item) => (
               <div className="line-item-row other-line-row" key={item.key}>
                 <input
@@ -551,12 +545,14 @@ export default function JobForm() {
                 <input
                   type="number"
                   step="0.01"
+                  placeholder="Qty"
                   value={item.quantity}
                   onChange={(e) => updateRow(setOtherLines, item.key, { quantity: e.target.value })}
                 />
                 <input
                   type="number"
                   step="0.01"
+                  placeholder="Amount"
                   value={item.unitCost}
                   onChange={(e) => updateRow(setOtherLines, item.key, { unitCost: e.target.value })}
                 />
