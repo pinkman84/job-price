@@ -2,15 +2,21 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { taxRateLabel } from '../lib/taxRates'
+import { UNIT_OPTIONS } from '../lib/units'
 import type { Address, Client, Job, JobLineItem, LineItemKind } from '../types'
 
 function formatMoney(amount: number, currencyCode: string) {
   return amount.toLocaleString(undefined, { style: 'currency', currency: currencyCode })
 }
 
+function unitLabel(unit: string | null) {
+  return UNIT_OPTIONS.find((u) => u.value === unit)?.label ?? null
+}
+
 function LineItemsTable({ items, currencyCode }: { items: JobLineItem[]; currencyCode: string }) {
   if (items.length === 0) return null
   const hasMargin = items.some((i) => i.margin_percent > 0)
+  const hasUnit = items.some((i) => i.unit)
 
   return (
     <table className="line-items-table">
@@ -18,6 +24,7 @@ function LineItemsTable({ items, currencyCode }: { items: JobLineItem[]; currenc
         <tr>
           <th>Description</th>
           <th>Qty</th>
+          {hasUnit && <th>Unit</th>}
           <th>Unit cost</th>
           {hasMargin && <th>Margin</th>}
           <th>Total</th>
@@ -28,6 +35,7 @@ function LineItemsTable({ items, currencyCode }: { items: JobLineItem[]; currenc
           <tr key={item.id}>
             <td>{item.description}</td>
             <td>{item.quantity}</td>
+            {hasUnit && <td>{unitLabel(item.unit) ?? '—'}</td>}
             <td>{formatMoney(item.unit_cost, currencyCode)}</td>
             {hasMargin && <td>{item.margin_percent > 0 ? `${item.margin_percent}%` : '—'}</td>}
             <td>{formatMoney(item.line_total, currencyCode)}</td>

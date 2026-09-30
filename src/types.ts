@@ -117,6 +117,7 @@ export interface JobLineItem {
   labour_rate_id: string | null
   description: string
   quantity: number
+  unit: string | null
   unit_cost: number
   margin_percent: number
   line_total: number
@@ -132,6 +133,7 @@ export type JobLineItemInput = Pick<
   | 'labour_rate_id'
   | 'description'
   | 'quantity'
+  | 'unit'
   | 'unit_cost'
   | 'margin_percent'
   | 'sort_order'

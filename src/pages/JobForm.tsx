@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { findOrCreateByName, resolveAddressId } from '../lib/resolvers'
 import { TAX_RATE_OPTIONS, formValueToTaxRate, taxRateToFormValue } from '../lib/taxRates'
+import { UNIT_OPTIONS, normalizeUnit, type UnitValue } from '../lib/units'
 import { useAuth } from '../context/AuthContext'
 import type { Address, JobStatus, LabourRate, LineItemKind } from '../types'
 
@@ -12,6 +13,7 @@ interface LineItemRow {
   labourRateId: string | null
   description: string
   quantity: string
+  unit: UnitValue
   unitCost: string
   marginPercent: string
 }
@@ -23,6 +25,7 @@ function emptyLineItem(marginPercent = '0'): LineItemRow {
     labourRateId: null,
     description: '',
     quantity: '1',
+    unit: 'item',
     unitCost: '0',
     marginPercent,
   }
@@ -181,6 +184,7 @@ export default function JobForm() {
         labourRateId: item.labour_rate_id,
         description: item.description,
         quantity: String(item.quantity),
+        unit: normalizeUnit(item.unit),
         unitCost: String(item.unit_cost),
         marginPercent: String(item.margin_percent),
       })
@@ -214,13 +218,14 @@ export default function JobForm() {
     setter((rows) => (rows.length > 1 ? rows.filter((row) => row.key !== key) : rows))
   }
 
-  function handleMaterialSelect(key: string, materialId: string) {
-    const material = materialOptions.find((m) => m.id === materialId)
-    updateRow(setMaterialLines, key, {
-      materialId: material?.id ?? null,
-      description: material ? `${material.name}${material.unit ? ` (${material.unit})` : ''}` : '',
-      unitCost: material?.latestCost != null ? String(material.latestCost) : '0',
-    })
+  function handleMaterialNameChange(key: string, value: string) {
+    const match = materialOptions.find((m) => m.name.trim().toLowerCase() === value.trim().toLowerCase())
+    const patch: Partial<LineItemRow> = { description: value, materialId: match?.id ?? null }
+    if (match) {
+      if (match.latestCost != null) patch.unitCost = String(match.latestCost)
+      patch.unit = normalizeUnit(match.unit)
+    }
+    updateRow(setMaterialLines, key, patch)
   }
 
   function handleLabourSelect(key: string, labourRateId: string) {
@@ -285,6 +290,7 @@ export default function JobForm() {
             labour_rate_id: row.labourRateId,
             description: row.description.trim(),
             quantity: Number(row.quantity) || 0,
+            unit: kind === 'material' ? row.unit : null,
             unit_cost: Number(row.unitCost) || 0,
             margin_percent: Number(row.marginPercent) || 0,
             sort_order: offset + index,
@@ -380,56 +386,81 @@ export default function JobForm() {
 
         <fieldset className="form-fieldset">
           <legend>Materials</legend>
+
+          <datalist id="material-options">
+            {materialOptions.map((m) => (
+              <option key={m.id} value={m.name} />
+            ))}
+          </datalist>
+
           <div className="line-items">
+            <div className="line-item-header material-line-row-2">
+              <span>Qty</span>
+              <span>Price</span>
+              <span>Unit</span>
+              <span>Margin %</span>
+              <span>Subtotal</span>
+              <span />
+            </div>
             {materialLines.map((item) => (
-              <div className="line-item-row material-line-row" key={item.key}>
-                <select
-                  value={item.materialId ?? ''}
-                  onChange={(e) => (e.target.value ? handleMaterialSelect(item.key, e.target.value) : updateRow(setMaterialLines, item.key, { materialId: null }))}
-                >
-                  <option value="">Bespoke…</option>
-                  {materialOptions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                      {m.unit ? ` (${m.unit})` : ''}
-                    </option>
-                  ))}
-                </select>
+              <div className="material-line-card" key={item.key}>
                 <input
-                  className="line-item-desc"
-                  placeholder="Description"
+                  className="material-line-name"
+                  list="material-options"
+                  placeholder="Material name — pick a saved one or type a new one"
                   value={item.description}
-                  onChange={(e) => updateRow(setMaterialLines, item.key, { description: e.target.value })}
+                  onChange={(e) => handleMaterialNameChange(item.key, e.target.value)}
                 />
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Qty"
-                  value={item.quantity}
-                  onChange={(e) => updateRow(setMaterialLines, item.key, { quantity: e.target.value })}
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Unit cost"
-                  value={item.unitCost}
-                  onChange={(e) => updateRow(setMaterialLines, item.key, { unitCost: e.target.value })}
-                />
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="Margin %"
-                  value={item.marginPercent}
-                  onChange={(e) => updateRow(setMaterialLines, item.key, { marginPercent: e.target.value })}
-                />
-                <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
-                <button type="button" className="link-button remove-line" onClick={() => removeRow(setMaterialLines, item.key)}>
-                  ✕
-                </button>
+                <div className="line-item-row material-line-row-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    aria-label="Quantity"
+                    value={item.quantity}
+                    onChange={(e) => updateRow(setMaterialLines, item.key, { quantity: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    aria-label="Price"
+                    value={item.unitCost}
+                    onChange={(e) => updateRow(setMaterialLines, item.key, { unitCost: e.target.value })}
+                  />
+                  <select
+                    aria-label="Unit"
+                    value={item.unit}
+                    onChange={(e) => updateRow(setMaterialLines, item.key, { unit: e.target.value as UnitValue })}
+                  >
+                    {UNIT_OPTIONS.map((u) => (
+                      <option key={u.value} value={u.value}>
+                        {u.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    step="0.1"
+                    aria-label="Margin percent"
+                    value={item.marginPercent}
+                    onChange={(e) => updateRow(setMaterialLines, item.key, { marginPercent: e.target.value })}
+                  />
+                  <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
+                  <button
+                    type="button"
+                    className="link-button remove-line"
+                    onClick={() => removeRow(setMaterialLines, item.key)}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-          <button type="button" className="link-button" onClick={() => setMaterialLines((r) => [...r, emptyLineItem(String(defaultMargin))])}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setMaterialLines((r) => [...r, emptyLineItem(String(defaultMargin))])}
+          >
             + Add material
           </button>
         </fieldset>
@@ -437,11 +468,23 @@ export default function JobForm() {
         <fieldset className="form-fieldset">
           <legend>Labour</legend>
           <div className="line-items">
+            <div className="line-item-header labour-line-row">
+              <span />
+              <span />
+              <span>Qty</span>
+              <span>Rate</span>
+              <span>Subtotal</span>
+              <span />
+            </div>
             {labourLines.map((item) => (
               <div className="line-item-row labour-line-row" key={item.key}>
                 <select
                   value={item.labourRateId ?? ''}
-                  onChange={(e) => (e.target.value ? handleLabourSelect(item.key, e.target.value) : updateRow(setLabourLines, item.key, { labourRateId: null }))}
+                  onChange={(e) =>
+                    e.target.value
+                      ? handleLabourSelect(item.key, e.target.value)
+                      : updateRow(setLabourLines, item.key, { labourRateId: null })
+                  }
                 >
                   <option value="">Custom…</option>
                   {labourRates.map((r) => (
@@ -459,19 +502,21 @@ export default function JobForm() {
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Hours/days"
                   value={item.quantity}
                   onChange={(e) => updateRow(setLabourLines, item.key, { quantity: e.target.value })}
                 />
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Rate"
                   value={item.unitCost}
                   onChange={(e) => updateRow(setLabourLines, item.key, { unitCost: e.target.value })}
                 />
                 <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
-                <button type="button" className="link-button remove-line" onClick={() => removeRow(setLabourLines, item.key)}>
+                <button
+                  type="button"
+                  className="link-button remove-line"
+                  onClick={() => removeRow(setLabourLines, item.key)}
+                >
                   ✕
                 </button>
               </div>
@@ -484,8 +529,17 @@ export default function JobForm() {
 
         <fieldset className="form-fieldset">
           <legend>Other charges</legend>
-          <p className="field-hint">Flat one-off amounts — contingency, callout fees, or just a number to scare off a tricky job.</p>
+          <p className="field-hint">
+            Flat one-off amounts — contingency, callout fees, or just a number to scare off a tricky job.
+          </p>
           <div className="line-items">
+            <div className="line-item-header other-line-row">
+              <span />
+              <span>Qty</span>
+              <span>Amount</span>
+              <span>Subtotal</span>
+              <span />
+            </div>
             {otherLines.map((item) => (
               <div className="line-item-row other-line-row" key={item.key}>
                 <input
@@ -497,19 +551,21 @@ export default function JobForm() {
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Qty"
                   value={item.quantity}
                   onChange={(e) => updateRow(setOtherLines, item.key, { quantity: e.target.value })}
                 />
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Amount"
                   value={item.unitCost}
                   onChange={(e) => updateRow(setOtherLines, item.key, { unitCost: e.target.value })}
                 />
                 <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
-                <button type="button" className="link-button remove-line" onClick={() => removeRow(setOtherLines, item.key)}>
+                <button
+                  type="button"
+                  className="link-button remove-line"
+                  onClick={() => removeRow(setOtherLines, item.key)}
+                >
                   ✕
                 </button>
               </div>

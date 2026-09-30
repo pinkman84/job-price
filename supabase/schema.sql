@@ -155,6 +155,9 @@ create table if not exists job_line_items (
   labour_rate_id uuid references labour_rates (id) on delete set null,
   description text not null,
   quantity numeric not null default 1,
+  -- Fixed unit set (m / m2 / kg / tonnes / item), mainly meaningful for
+  -- material lines; null for labour/other.
+  unit text check (unit is null or unit in ('m', 'm2', 'kg', 'tonnes', 'item')),
   unit_cost numeric not null default 0,
   -- Margin defaults to the user's profile setting for material lines (snapshot
   -- at the time the line is added), and to 0 for labour/other unless the user
