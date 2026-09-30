@@ -2,18 +2,44 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { findOrCreateByName, resolveAddressId } from '../lib/resolvers'
+import { TAX_RATE_OPTIONS, formValueToTaxRate, taxRateToFormValue } from '../lib/taxRates'
 import { useAuth } from '../context/AuthContext'
-import type { Address, JobStatus } from '../types'
+import type { Address, JobStatus, LabourRate, LineItemKind } from '../types'
 
 interface LineItemRow {
   key: string
+  materialId: string | null
+  labourRateId: string | null
   description: string
   quantity: string
   unitCost: string
+  marginPercent: string
 }
 
-function emptyLineItem(): LineItemRow {
-  return { key: crypto.randomUUID(), description: '', quantity: '1', unitCost: '0' }
+function emptyLineItem(marginPercent = '0'): LineItemRow {
+  return {
+    key: crypto.randomUUID(),
+    materialId: null,
+    labourRateId: null,
+    description: '',
+    quantity: '1',
+    unitCost: '0',
+    marginPercent,
+  }
+}
+
+function lineTotal(row: LineItemRow) {
+  const qty = Number(row.quantity) || 0
+  const cost = Number(row.unitCost) || 0
+  const margin = Number(row.marginPercent) || 0
+  return Math.round(qty * cost * (1 + margin / 100) * 100) / 100
+}
+
+interface MaterialOption {
+  id: string
+  name: string
+  unit: string | null
+  latestCost: number | null
 }
 
 export default function JobForm() {
@@ -32,11 +58,18 @@ export default function JobForm() {
   const [postcode, setPostcode] = useState('')
   const [status, setStatus] = useState<JobStatus>('draft')
   const [dueDate, setDueDate] = useState('')
-  const [taxRatePercent, setTaxRatePercent] = useState('0')
+  const [taxRateValue, setTaxRateValue] = useState('none')
   const [paidInFull, setPaidInFull] = useState(false)
   const [amountOutstanding, setAmountOutstanding] = useState('0')
-  const [lineItems, setLineItems] = useState<LineItemRow[]>([emptyLineItem()])
+
+  const [defaultMargin, setDefaultMargin] = useState(0)
+  const [materialLines, setMaterialLines] = useState<LineItemRow[]>([])
+  const [labourLines, setLabourLines] = useState<LineItemRow[]>([])
+  const [otherLines, setOtherLines] = useState<LineItemRow[]>([])
+
   const [clientOptions, setClientOptions] = useState<{ id: string; name: string }[]>([])
+  const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([])
+  const [labourRates, setLabourRates] = useState<LabourRate[]>([])
 
   const [loading, setLoading] = useState(isEditing)
   const [saving, setSaving] = useState(false)
@@ -48,6 +81,53 @@ export default function JobForm() {
       .select('id, name')
       .order('name')
       .then(({ data }) => setClientOptions(data ?? []))
+
+    supabase
+      .from('labour_rates')
+      .select('*')
+      .order('role_name')
+      .then(({ data }) => setLabourRates(data ?? []))
+
+    async function loadMaterials() {
+      const [{ data: materials }, { data: prices }] = await Promise.all([
+        supabase.from('materials').select('id, name, unit').order('name'),
+        supabase.from('material_latest_prices').select('material_id, cost, recorded_at'),
+      ])
+
+      const latestByMaterial = new Map<string, { cost: number; recordedAt: string }>()
+      for (const p of prices ?? []) {
+        const existing = latestByMaterial.get(p.material_id)
+        if (!existing || p.recorded_at > existing.recordedAt) {
+          latestByMaterial.set(p.material_id, { cost: p.cost, recordedAt: p.recorded_at })
+        }
+      }
+
+      setMaterialOptions(
+        (materials ?? []).map((m) => ({
+          id: m.id,
+          name: m.name,
+          unit: m.unit,
+          latestCost: latestByMaterial.get(m.id)?.cost ?? null,
+        })),
+      )
+    }
+    loadMaterials()
+
+    if (!isEditing) {
+      supabase
+        .from('profiles')
+        .select('default_margin_percent')
+        .eq('id', session!.user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          const margin = data?.default_margin_percent ?? 0
+          setDefaultMargin(margin)
+          setMaterialLines([emptyLineItem(String(margin))])
+          setLabourLines([emptyLineItem('0')])
+          setOtherLines([emptyLineItem('0')])
+        })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -64,7 +144,7 @@ export default function JobForm() {
       setName(job.name)
       setStatus(job.status)
       setDueDate(job.due_date ?? '')
-      setTaxRatePercent(String(job.tax_rate * 100))
+      setTaxRateValue(taxRateToFormValue(job.tax_rate))
       setPaidInFull(job.paid_in_full)
       setAmountOutstanding(String(job.amount_outstanding))
       setExistingAddressId(job.address_id)
@@ -95,16 +175,21 @@ export default function JobForm() {
         .eq('job_id', id)
         .order('sort_order')
 
-      if (items && items.length > 0) {
-        setLineItems(
-          items.map((item) => ({
-            key: item.id,
-            description: item.description,
-            quantity: String(item.quantity),
-            unitCost: String(item.unit_cost),
-          })),
-        )
-      }
+      const toRow = (item: NonNullable<typeof items>[number]): LineItemRow => ({
+        key: item.id,
+        materialId: item.material_id,
+        labourRateId: item.labour_rate_id,
+        description: item.description,
+        quantity: String(item.quantity),
+        unitCost: String(item.unit_cost),
+        marginPercent: String(item.margin_percent),
+      })
+
+      const byKind = (kind: LineItemKind) => (items ?? []).filter((i) => i.kind === kind).map(toRow)
+
+      setMaterialLines(byKind('material').length > 0 ? byKind('material') : [emptyLineItem()])
+      setLabourLines(byKind('labour').length > 0 ? byKind('labour') : [emptyLineItem('0')])
+      setOtherLines(byKind('other').length > 0 ? byKind('other') : [emptyLineItem('0')])
 
       setLoading(false)
     }
@@ -112,21 +197,39 @@ export default function JobForm() {
     load()
   }, [id, isEditing])
 
-  const subtotal = lineItems.reduce((sum, item) => {
-    const qty = Number(item.quantity) || 0
-    const cost = Number(item.unitCost) || 0
-    return sum + qty * cost
-  }, 0)
-  const taxRate = (Number(taxRatePercent) || 0) / 100
-  const taxAmount = Math.round(subtotal * taxRate * 100) / 100
+  const subtotal = [...materialLines, ...labourLines, ...otherLines].reduce((sum, row) => sum + lineTotal(row), 0)
+  const taxRate = formValueToTaxRate(taxRateValue)
+  const taxAmount = Math.round(subtotal * (taxRate ?? 0) * 100) / 100
   const total = subtotal + taxAmount
 
-  function updateLineItem(key: string, patch: Partial<LineItemRow>) {
-    setLineItems((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
+  function updateRow(
+    setter: React.Dispatch<React.SetStateAction<LineItemRow[]>>,
+    key: string,
+    patch: Partial<LineItemRow>,
+  ) {
+    setter((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
-  function removeLineItem(key: string) {
-    setLineItems((rows) => (rows.length > 1 ? rows.filter((row) => row.key !== key) : rows))
+  function removeRow(setter: React.Dispatch<React.SetStateAction<LineItemRow[]>>, key: string) {
+    setter((rows) => (rows.length > 1 ? rows.filter((row) => row.key !== key) : rows))
+  }
+
+  function handleMaterialSelect(key: string, materialId: string) {
+    const material = materialOptions.find((m) => m.id === materialId)
+    updateRow(setMaterialLines, key, {
+      materialId: material?.id ?? null,
+      description: material ? `${material.name}${material.unit ? ` (${material.unit})` : ''}` : '',
+      unitCost: material?.latestCost != null ? String(material.latestCost) : '0',
+    })
+  }
+
+  function handleLabourSelect(key: string, labourRateId: string) {
+    const rate = labourRates.find((r) => r.id === labourRateId)
+    updateRow(setLabourLines, key, {
+      labourRateId: rate?.id ?? null,
+      description: rate ? `${rate.role_name} (${rate.rate_type === 'hourly' ? 'per hour' : 'per day'})` : '',
+      unitCost: rate ? String(rate.rate) : '0',
+    })
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -172,15 +275,26 @@ export default function JobForm() {
         if (deleteError) throw deleteError
       }
 
-      const itemsToInsert = lineItems
-        .filter((row) => row.description.trim())
-        .map((row, index) => ({
-          job_id: jobId,
-          description: row.description.trim(),
-          quantity: Number(row.quantity) || 0,
-          unit_cost: Number(row.unitCost) || 0,
-          sort_order: index,
-        }))
+      const buildInserts = (rows: LineItemRow[], kind: LineItemKind, offset: number) =>
+        rows
+          .filter((row) => row.description.trim())
+          .map((row, index) => ({
+            job_id: jobId,
+            kind,
+            material_id: row.materialId,
+            labour_rate_id: row.labourRateId,
+            description: row.description.trim(),
+            quantity: Number(row.quantity) || 0,
+            unit_cost: Number(row.unitCost) || 0,
+            margin_percent: Number(row.marginPercent) || 0,
+            sort_order: offset + index,
+          }))
+
+      const itemsToInsert = [
+        ...buildInserts(materialLines, 'material', 0),
+        ...buildInserts(labourLines, 'labour', 100),
+        ...buildInserts(otherLines, 'other', 200),
+      ]
 
       if (itemsToInsert.length > 0) {
         const { error: itemsError } = await supabase.from('job_line_items').insert(itemsToInsert)
@@ -265,59 +379,163 @@ export default function JobForm() {
         </label>
 
         <fieldset className="form-fieldset">
-          <legend>Line items</legend>
+          <legend>Materials</legend>
           <div className="line-items">
-            {lineItems.map((item) => (
-              <div className="line-item-row" key={item.key}>
+            {materialLines.map((item) => (
+              <div className="line-item-row material-line-row" key={item.key}>
+                <select
+                  value={item.materialId ?? ''}
+                  onChange={(e) => (e.target.value ? handleMaterialSelect(item.key, e.target.value) : updateRow(setMaterialLines, item.key, { materialId: null }))}
+                >
+                  <option value="">Bespoke…</option>
+                  {materialOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                      {m.unit ? ` (${m.unit})` : ''}
+                    </option>
+                  ))}
+                </select>
                 <input
                   className="line-item-desc"
                   placeholder="Description"
                   value={item.description}
-                  onChange={(e) => updateLineItem(item.key, { description: e.target.value })}
+                  onChange={(e) => updateRow(setMaterialLines, item.key, { description: e.target.value })}
                 />
                 <input
-                  className="line-item-qty"
                   type="number"
                   step="0.01"
                   placeholder="Qty"
                   value={item.quantity}
-                  onChange={(e) => updateLineItem(item.key, { quantity: e.target.value })}
+                  onChange={(e) => updateRow(setMaterialLines, item.key, { quantity: e.target.value })}
                 />
                 <input
-                  className="line-item-cost"
                   type="number"
                   step="0.01"
                   placeholder="Unit cost"
                   value={item.unitCost}
-                  onChange={(e) => updateLineItem(item.key, { unitCost: e.target.value })}
+                  onChange={(e) => updateRow(setMaterialLines, item.key, { unitCost: e.target.value })}
                 />
-                <span className="line-item-total">
-                  {((Number(item.quantity) || 0) * (Number(item.unitCost) || 0)).toFixed(2)}
-                </span>
-                <button
-                  type="button"
-                  className="link-button remove-line"
-                  onClick={() => removeLineItem(item.key)}
-                >
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Margin %"
+                  value={item.marginPercent}
+                  onChange={(e) => updateRow(setMaterialLines, item.key, { marginPercent: e.target.value })}
+                />
+                <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
+                <button type="button" className="link-button remove-line" onClick={() => removeRow(setMaterialLines, item.key)}>
                   ✕
                 </button>
               </div>
             ))}
           </div>
-          <button type="button" className="link-button" onClick={() => setLineItems((r) => [...r, emptyLineItem()])}>
-            + Add line
+          <button type="button" className="link-button" onClick={() => setMaterialLines((r) => [...r, emptyLineItem(String(defaultMargin))])}>
+            + Add material
+          </button>
+        </fieldset>
+
+        <fieldset className="form-fieldset">
+          <legend>Labour</legend>
+          <div className="line-items">
+            {labourLines.map((item) => (
+              <div className="line-item-row labour-line-row" key={item.key}>
+                <select
+                  value={item.labourRateId ?? ''}
+                  onChange={(e) => (e.target.value ? handleLabourSelect(item.key, e.target.value) : updateRow(setLabourLines, item.key, { labourRateId: null }))}
+                >
+                  <option value="">Custom…</option>
+                  {labourRates.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.role_name} ({r.rate_type === 'hourly' ? '/hr' : '/day'})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="line-item-desc"
+                  placeholder="Description"
+                  value={item.description}
+                  onChange={(e) => updateRow(setLabourLines, item.key, { description: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Hours/days"
+                  value={item.quantity}
+                  onChange={(e) => updateRow(setLabourLines, item.key, { quantity: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Rate"
+                  value={item.unitCost}
+                  onChange={(e) => updateRow(setLabourLines, item.key, { unitCost: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Margin %"
+                  value={item.marginPercent}
+                  onChange={(e) => updateRow(setLabourLines, item.key, { marginPercent: e.target.value })}
+                />
+                <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
+                <button type="button" className="link-button remove-line" onClick={() => removeRow(setLabourLines, item.key)}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="link-button" onClick={() => setLabourLines((r) => [...r, emptyLineItem('0')])}>
+            + Add labour
+          </button>
+        </fieldset>
+
+        <fieldset className="form-fieldset">
+          <legend>Other charges</legend>
+          <p className="field-hint">Flat one-off amounts — contingency, callout fees, or just a number to scare off a tricky job.</p>
+          <div className="line-items">
+            {otherLines.map((item) => (
+              <div className="line-item-row other-line-row" key={item.key}>
+                <input
+                  className="line-item-desc"
+                  placeholder="Description"
+                  value={item.description}
+                  onChange={(e) => updateRow(setOtherLines, item.key, { description: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Qty"
+                  value={item.quantity}
+                  onChange={(e) => updateRow(setOtherLines, item.key, { quantity: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Amount"
+                  value={item.unitCost}
+                  onChange={(e) => updateRow(setOtherLines, item.key, { unitCost: e.target.value })}
+                />
+                <span className="line-item-total">{lineTotal(item).toFixed(2)}</span>
+                <button type="button" className="link-button remove-line" onClick={() => removeRow(setOtherLines, item.key)}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="link-button" onClick={() => setOtherLines((r) => [...r, emptyLineItem('0')])}>
+            + Add charge
           </button>
         </fieldset>
 
         <label>
-          Tax rate (%)
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={taxRatePercent}
-            onChange={(e) => setTaxRatePercent(e.target.value)}
-          />
+          Tax rate
+          <select value={taxRateValue} onChange={(e) => setTaxRateValue(e.target.value)}>
+            {TAX_RATE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <div className="totals-summary">

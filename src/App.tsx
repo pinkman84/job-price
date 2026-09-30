@@ -8,6 +8,8 @@ import JobForm from './pages/JobForm'
 import JobDetail from './pages/JobDetail'
 import ClientsList from './pages/ClientsList'
 import MaterialsList from './pages/MaterialsList'
+import LabourRates from './pages/LabourRates'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -28,6 +30,8 @@ export default function App() {
             <Route path="/jobs/:id/edit" element={<JobForm />} />
             <Route path="/clients" element={<ClientsList />} />
             <Route path="/materials" element={<MaterialsList />} />
+            <Route path="/labour" element={<LabourRates />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
         </Routes>
       </BrowserRouter>

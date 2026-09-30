@@ -1,10 +1,41 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { Address, Client, Job, JobLineItem } from '../types'
+import { taxRateLabel } from '../lib/taxRates'
+import type { Address, Client, Job, JobLineItem, LineItemKind } from '../types'
 
 function formatMoney(amount: number, currencyCode: string) {
   return amount.toLocaleString(undefined, { style: 'currency', currency: currencyCode })
+}
+
+function LineItemsTable({ items, currencyCode }: { items: JobLineItem[]; currencyCode: string }) {
+  if (items.length === 0) return null
+  const hasMargin = items.some((i) => i.margin_percent > 0)
+
+  return (
+    <table className="line-items-table">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Qty</th>
+          <th>Unit cost</th>
+          {hasMargin && <th>Margin</th>}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => (
+          <tr key={item.id}>
+            <td>{item.description}</td>
+            <td>{item.quantity}</td>
+            <td>{formatMoney(item.unit_cost, currencyCode)}</td>
+            {hasMargin && <td>{item.margin_percent > 0 ? `${item.margin_percent}%` : '—'}</td>}
+            <td>{formatMoney(item.line_total, currencyCode)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
 export default function JobDetail() {
@@ -59,6 +90,8 @@ export default function JobDetail() {
   if (error) return <p className="form-error">{error}</p>
   if (!job) return <p>Job not found.</p>
 
+  const byKind = (kind: LineItemKind) => lineItems.filter((i) => i.kind === kind)
+
   return (
     <div className="page">
       <header className="page-header">
@@ -104,27 +137,25 @@ export default function JobDetail() {
         )}
       </div>
 
-      {lineItems.length > 0 && (
-        <table className="line-items-table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Qty</th>
-              <th>Unit cost</th>
-              <th>Line total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lineItems.map((item) => (
-              <tr key={item.id}>
-                <td>{item.description}</td>
-                <td>{item.quantity}</td>
-                <td>{formatMoney(item.unit_cost, job.currency_code)}</td>
-                <td>{formatMoney(item.line_total, job.currency_code)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {byKind('material').length > 0 && (
+        <>
+          <h2 className="section-heading">Materials</h2>
+          <LineItemsTable items={byKind('material')} currencyCode={job.currency_code} />
+        </>
+      )}
+
+      {byKind('labour').length > 0 && (
+        <>
+          <h2 className="section-heading">Labour</h2>
+          <LineItemsTable items={byKind('labour')} currencyCode={job.currency_code} />
+        </>
+      )}
+
+      {byKind('other').length > 0 && (
+        <>
+          <h2 className="section-heading">Other charges</h2>
+          <LineItemsTable items={byKind('other')} currencyCode={job.currency_code} />
+        </>
       )}
 
       <div className="totals-summary">
@@ -133,7 +164,7 @@ export default function JobDetail() {
           <span>{formatMoney(job.subtotal, job.currency_code)}</span>
         </div>
         <div>
-          <span>Tax ({(job.tax_rate * 100).toFixed(2)}%)</span>
+          <span>Tax ({taxRateLabel(job.tax_rate)})</span>
           <span>{formatMoney(job.tax_amount, job.currency_code)}</span>
         </div>
         <div className="totals-grand">

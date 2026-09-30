@@ -1,6 +1,6 @@
 -- Run this in the Supabase SQL editor for your project.
 -- Everything is scoped per-user (auth.uid()) via RLS: each contractor only ever
--- sees their own clients, materials, suppliers, tax codes, jobs and images.
+-- sees their own clients, materials, suppliers, labour rates, jobs and images.
 
 -- ---------------------------------------------------------------------------
 -- Addresses
@@ -20,6 +20,18 @@ create table if not exists addresses (
 create index if not exists addresses_user_id_idx on addresses (user_id);
 
 -- ---------------------------------------------------------------------------
+-- Profiles: per-user settings (default profit margin, home base address for
+-- future distance/logistics features).
+-- ---------------------------------------------------------------------------
+create table if not exists profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  default_margin_percent numeric not null default 0,
+  home_address_id uuid references addresses (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
 -- Clients
 -- ---------------------------------------------------------------------------
 create table if not exists clients (
@@ -32,18 +44,6 @@ create table if not exists clients (
 );
 
 create index if not exists clients_user_id_idx on clients (user_id);
-
--- ---------------------------------------------------------------------------
--- Tax codes (e.g. "VAT20" -> 0.20)
--- ---------------------------------------------------------------------------
-create table if not exists tax_codes (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
-  code text not null,
-  rate numeric(6, 4) not null default 0,
-  created_at timestamptz not null default now(),
-  unique (user_id, code)
-);
 
 -- ---------------------------------------------------------------------------
 -- Suppliers
@@ -83,6 +83,21 @@ create table if not exists material_prices (
 create index if not exists material_prices_material_id_idx on material_prices (material_id);
 create index if not exists material_prices_supplier_id_idx on material_prices (supplier_id);
 
+-- ---------------------------------------------------------------------------
+-- Labour rates (kept separate from materials): reusable hourly/day rates per
+-- role. As many as the user wants — standard roles plus one-off custom rates.
+-- ---------------------------------------------------------------------------
+create table if not exists labour_rates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  role_name text not null,
+  rate_type text not null default 'hourly' check (rate_type in ('hourly', 'daily')),
+  rate numeric not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists labour_rates_user_id_idx on labour_rates (user_id);
+
 -- Latest known price per material/supplier pair.
 -- security_invoker: without this, the view would run with its owner's
 -- privileges and silently bypass the RLS policies on material_prices below,
@@ -113,10 +128,12 @@ create table if not exists jobs (
   due_date date,
   currency_code text not null default 'GBP',
   subtotal numeric not null default 0,
-  tax_code_id uuid references tax_codes (id) on delete set null,
-  tax_rate numeric(6, 4) not null default 0, -- snapshot of the rate at quote time
-  tax_amount numeric generated always as (round(subtotal * tax_rate, 2)) stored,
-  total numeric generated always as (subtotal + round(subtotal * tax_rate, 2)) stored,
+  -- UK VAT model: null = no tax code assigned, otherwise one of the three
+  -- published rates. Fixed by the app's UI, not user-editable, so a simple
+  -- check constraint is enough (no tax_codes table).
+  tax_rate numeric(6, 4) check (tax_rate is null or tax_rate in (0, 0.05, 0.20)),
+  tax_amount numeric generated always as (round(subtotal * coalesce(tax_rate, 0), 2)) stored,
+  total numeric generated always as (subtotal + round(subtotal * coalesce(tax_rate, 0), 2)) stored,
   paid_in_full boolean not null default false,
   amount_outstanding numeric not null default 0,
   created_at timestamptz not null default now(),
@@ -132,12 +149,19 @@ create index if not exists jobs_client_id_idx on jobs (client_id);
 create table if not exists job_line_items (
   id uuid primary key default gen_random_uuid(),
   job_id uuid not null references jobs (id) on delete cascade,
+  kind text not null default 'material' check (kind in ('material', 'labour', 'other')),
   material_id uuid references materials (id) on delete set null,
   supplier_id uuid references suppliers (id) on delete set null,
+  labour_rate_id uuid references labour_rates (id) on delete set null,
   description text not null,
   quantity numeric not null default 1,
   unit_cost numeric not null default 0,
-  line_total numeric generated always as (quantity * unit_cost) stored,
+  -- Margin defaults to the user's profile setting for material lines (snapshot
+  -- at the time the line is added), and to 0 for labour/other unless the user
+  -- overrides it — e.g. spiking margin on an awkward supplier, or dropping it
+  -- to win a job. line_total is what gets billed; unit_cost stays the raw cost.
+  margin_percent numeric not null default 0,
+  line_total numeric generated always as (round(quantity * unit_cost * (1 + margin_percent / 100.0), 2)) stored,
   sort_order int not null default 0,
   created_at timestamptz not null default now()
 );
@@ -191,15 +215,21 @@ create trigger clients_set_updated_at
   for each row
   execute function set_updated_at();
 
+create trigger profiles_set_updated_at
+  before update on profiles
+  for each row
+  execute function set_updated_at();
+
 -- ---------------------------------------------------------------------------
 -- Row level security
 -- ---------------------------------------------------------------------------
 alter table addresses enable row level security;
+alter table profiles enable row level security;
 alter table clients enable row level security;
-alter table tax_codes enable row level security;
 alter table suppliers enable row level security;
 alter table materials enable row level security;
 alter table material_prices enable row level security;
+alter table labour_rates enable row level security;
 alter table jobs enable row level security;
 alter table job_line_items enable row level security;
 alter table job_images enable row level security;
@@ -209,13 +239,18 @@ create policy "Users manage their own addresses"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+create policy "Users manage their own profile"
+  on profiles for all
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
 create policy "Users manage their own clients"
   on clients for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create policy "Users manage their own tax codes"
-  on tax_codes for all
+create policy "Users manage their own labour rates"
+  on labour_rates for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 

@@ -30,12 +30,18 @@ export function AppLayout() {
             <NavLink to="/materials" className={navLinkClass}>
               Materials
             </NavLink>
+            <NavLink to="/labour" className={navLinkClass}>
+              Labour
+            </NavLink>
           </nav>
 
           <div className="app-nav-actions">
             <Link className="button" to="/jobs/new">
               + New job
             </Link>
+            <NavLink to="/settings" className={navLinkClass}>
+              Settings
+            </NavLink>
             <button className="link-button" onClick={handleSignOut}>
               Sign out
             </button>

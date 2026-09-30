@@ -357,15 +357,35 @@ textarea:focus {
 
 .line-item-row {
   display: grid;
-  grid-template-columns: 1fr 70px 90px 80px auto;
+  grid-template-columns: minmax(0, 1fr) 70px 90px 80px auto;
   gap: 0.5rem;
   align-items: center;
+}
+
+.line-item-row > * {
+  min-width: 0;
+}
+
+.material-line-row,
+.labour-line-row {
+  grid-template-columns: minmax(90px, 130px) minmax(0, 1fr) 55px 65px 60px 65px auto;
 }
 
 .line-item-total {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+}
+
+.field-hint {
+  margin: -0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.section-heading {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.75rem;
 }
 
 .remove-line {

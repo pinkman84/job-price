@@ -23,12 +23,12 @@ export interface Client {
   updated_at: string
 }
 
-export interface TaxCode {
+export interface Profile {
   id: string
-  user_id: string
-  code: string
-  rate: number
+  default_margin_percent: number
+  home_address_id: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface Supplier {
@@ -56,7 +56,20 @@ export interface MaterialPrice {
   recorded_at: string
 }
 
-export type JobStatusValue = JobStatus
+export type LabourRateType = 'hourly' | 'daily'
+
+export interface LabourRate {
+  id: string
+  user_id: string
+  role_name: string
+  rate_type: LabourRateType
+  rate: number
+  created_at: string
+}
+
+// UK VAT model: a fixed set of rates chosen from a dropdown, not user-managed.
+// null means no tax code has been assigned to the job.
+export type TaxRate = null | 0 | 0.05 | 0.2
 
 export interface Job {
   id: string
@@ -70,8 +83,7 @@ export interface Job {
   due_date: string | null
   currency_code: string
   subtotal: number
-  tax_code_id: string | null
-  tax_rate: number
+  tax_rate: TaxRate
   tax_amount: number
   total: number
   paid_in_full: boolean
@@ -89,20 +101,24 @@ export type JobInput = Pick<
   | 'due_date'
   | 'currency_code'
   | 'subtotal'
-  | 'tax_code_id'
   | 'tax_rate'
   | 'paid_in_full'
   | 'amount_outstanding'
 >
 
+export type LineItemKind = 'material' | 'labour' | 'other'
+
 export interface JobLineItem {
   id: string
   job_id: string
+  kind: LineItemKind
   material_id: string | null
   supplier_id: string | null
+  labour_rate_id: string | null
   description: string
   quantity: number
   unit_cost: number
+  margin_percent: number
   line_total: number
   sort_order: number
   created_at: string
@@ -110,7 +126,15 @@ export interface JobLineItem {
 
 export type JobLineItemInput = Pick<
   JobLineItem,
-  'material_id' | 'supplier_id' | 'description' | 'quantity' | 'unit_cost' | 'sort_order'
+  | 'kind'
+  | 'material_id'
+  | 'supplier_id'
+  | 'labour_rate_id'
+  | 'description'
+  | 'quantity'
+  | 'unit_cost'
+  | 'margin_percent'
+  | 'sort_order'
 >
 
 export interface JobImage {
